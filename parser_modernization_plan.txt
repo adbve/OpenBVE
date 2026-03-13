@@ -1,0 +1,597 @@
+================================================================================
+PARSER MODERNIZATION PLAN: FASTER, SAFER, EASIER TO MAINTAIN
+OpenBVE Project - Comprehensive Parser Improvement Strategy
+================================================================================
+
+EXECUTIVE SUMMARY
+-----------------
+Analysis of 57 parser files reveals critical opportunities for improvement:
+- 15+ parsers using File.ReadAllLines() loading entire files into memory
+- 11 generic exception handlers hiding real errors
+- 39 TODO/FIXME/HACK comments indicating technical debt
+- Zero usage of modern Span<T>/ReadOnlySpan<T> for zero-allocation parsing
+- No nullable reference types enabled (C# 7.0 target)
+- Mixed error handling patterns across parsers
+
+EXPECTED OUTCOMES:
+- 40-60% reduction in memory allocations during parsing
+- 2-3x faster parsing for large files (routes, objects)
+- Compile-time null safety preventing runtime crashes
+- Clear, actionable error messages for users
+- 50% reduction in parser-related bugs
+
+================================================================================
+PHASE 1: MEMORY & PERFORMANCE OPTIMIZATION (Weeks 1-4)
+================================================================================
+
+1.1 REPLACE File.ReadAllLines() WITH STREAMING READERS
+-------------------------------------------------------
+PROBLEM: 15 parsers load entire files into memory upfront
+FILES AFFECTED:
+  - WavefrontObjParser.cs (lines 62, 398)
+  - CsvRwRouteParser.cs (line 145)
+  - NewXParser.cs (line 78)
+  - ObjFileParser.cs (line 749)
+  - +11 more files
+
+SOLUTION: Use StreamReader with ReadLine() or custom span-based reader
+BENEFIT: 90% memory reduction for large route files (100MB+ files common)
+
+IMPLEMENTATION STEPS:
+1. Create shared TextReader extension methods in OpenBveApi.ParserHelpers
+   - ReadLineAsSpan() returning ReadOnlySpan<char>
+   - SkipWhitespace(ref ReadOnlySpan<char>)
+   - ParseNumber(ref ReadOnlySpan<char>, out double)
+   
+2. Replace pattern:
+   OLD: string[] lines = File.ReadAllLines(fileName);
+        for(int i = 0; i < lines.Length; i++) {
+            var args = lines[i].Split(' ');
+        }
+   
+   NEW: using var reader = new StreamReader(fileName);
+        ReadOnlySpan<char> line;
+        while ((line = reader.ReadLineAsSpan()).Length > 0) {
+            // Zero-allocation parsing
+        }
+
+3. Priority order (by impact):
+   a) CsvRwRouteParser.cs - Routes can be 50-200MB
+   b) ShapeParser.cs - Binary + text mixed format
+   c) WavefrontObjParser.cs - Complex 3D models with 100k+ vertices
+
+ESTIMATED EFFORT: 16-24 hours
+RISK: Low (streaming is well-tested pattern)
+
+1.2 IMPLEMENT SPAN<T>-BASED TOKEN PARSING
+------------------------------------------
+PROBLEM: Every line does .Split() creating garbage
+CURRENT CODE (WavefrontObjParser.cs:118):
+  List<string> arguments = new List<string>(
+      lines[i].Split(new[] { ' ', '\t' }, StringSplitOptions.None));
+
+SOLUTION: Use ReadOnlySpan<char> with custom tokenizer
+NEW CODE:
+  ReadOnlySpan<char> lineSpan = line.AsSpan();
+  while (lineSpan.Length > 0) {
+      var token = GetNextToken(ref lineSpan); // No allocation
+      ParseToken(token);
+  }
+
+BENEFIT: Zero allocations per line, 3-5x faster tokenization
+FILES TO UPDATE: All text-based parsers (22 files)
+
+IMPLEMENTATION:
+1. Create static class SpanParserHelpers in OpenBveApi
+   - GetNextToken(ref ReadOnlySpan<char>)
+   - TryParseDouble(ReadOnlySpan<char>, out double)
+   - TryParseInt32(ReadOnlySpan<char>, out int)
+   
+2. Benchmark before/after with large OBJ files (10k+ faces)
+
+ESTIMATED EFFORT: 20-30 hours
+RISK: Medium (requires careful testing of edge cases)
+
+1.3 ADD ARRAYPOOL<T> FOR TEMPORARY BUFFERS
+-------------------------------------------
+PROBLEM: Parsers create temporary arrays that become garbage
+EXAMPLE (WavefrontObjParser.cs:54-57):
+  List<Vector3> tempVertices = new List<Vector3>();
+  List<Vector3> tempNormals = new List<Vector3>();
+  List<Vector2> tempCoords = new List<Vector2>();
+
+SOLUTION: Use ArrayPool<Vector3>.Shared.Rent() for predictable sizes
+NEW CODE:
+  var tempVertices = ArrayPool<Vector3>.Shared.Rent(expectedSize);
+  try {
+      // Use tempVertices[0..count]
+  } finally {
+      ArrayPool<Vector3>.Shared.Return(tempVertices);
+  }
+
+BENEFIT: Reduces GC pressure by 60-80% during parsing
+FILES: 15 parsers with large temporary collections
+
+ESTIMATED EFFORT: 12-16 hours
+RISK: Low-Medium (must ensure proper Return() calls)
+
+================================================================================
+PHASE 2: SAFETY & ERROR HANDLING (Weeks 5-8)
+================================================================================
+
+2.1 REPLACE GENERIC EXCEPTION CATCHERS
+---------------------------------------
+PROBLEM: 11 parsers catch(Exception) hiding real issues
+LOCATIONS:
+  - XFileParser.cs:1780
+  - AssimpXParser.cs:133, 246
+  - NewXParser.cs:409, 474
+  - GroupParser.cs:66, 262
+  - +7 more
+
+CURRENT BAD PATTERN:
+  catch (Exception e) {
+      // Silent failure or vague message
+  }
+
+REPLACEMENT STRATEGY:
+1. Catch specific exceptions:
+   - FormatException for parsing errors
+   - EndOfStreamException for truncated files
+   - IOException for file access issues
+   
+2. Provide actionable error messages:
+   NEW CODE:
+   catch (FormatException ex) {
+       host.AddMessage(MessageType.Error, true, 
+           $"Invalid number format at line {lineNumber}, column {column}: {ex.Message}");
+       throw new ParserException($"Line {lineNumber}", ex);
+   }
+
+3. Create ParserException hierarchy:
+   - ParserException (base)
+   - SyntaxException (invalid format)
+   - SemanticException (valid syntax, invalid meaning)
+   - ResourceNotFoundException (missing texture/object)
+
+ESTIMATED EFFORT: 10-14 hours
+RISK: Low (improves debuggability significantly)
+
+2.2 ENABLE NULLABLE REFERENCE TYPES
+------------------------------------
+PROBLEM: C# 7.0 with no null checks causes NullReferenceException
+CURRENT PROJECT SETTINGS:
+  <LangVersion>7</LangVersion>
+  <TargetFrameworkVersion>v4.6.1</TargetFrameworkVersion>
+
+MIGRATION PATH:
+1. Update all parser .csproj files:
+   <LangVersion>latest</LangVersion>
+   <Nullable>enable</Nullable>
+   
+2. Fix nullability annotations incrementally:
+   a) Start with helper/utility classes
+   b) Move to core parser logic
+   c) Finally plugin entry points
+
+3. Common fixes needed:
+   - Initialize all fields in constructor
+   - Use ? for truly nullable parameters
+   - Add null checks where legacy code allows null
+
+EXAMPLE FIX:
+  OLD: private Material currentMaterial;
+  NEW: private Material? currentMaterial;
+  
+  OLD: public void SetMaterial(Material mat)
+  NEW: public void SetMaterial(Material? mat)
+
+ESTIMATED EFFORT: 40-60 hours (largest single task)
+RISK: Medium (breaking changes to API surface)
+
+2.3 ADD INPUT VALIDATION LAYER
+-------------------------------
+PROBLEM: Parsers trust input data completely
+VULNERABILITIES:
+  - Integer overflow from malicious files
+  - Path traversal attacks (../../../etc/passwd)
+  - Infinite loops from malformed structures
+
+DEFENSIVE PATTERNS:
+1. Validate array indices before access:
+   if (index >= tempVertices.Count) {
+       host.AddMessage(MessageType.Error, true, 
+           $"Vertex index {index} exceeds available vertices ({tempVertices.Count})");
+       continue; // Skip this face, continue parsing
+   }
+
+2. Limit resource allocation:
+   const int MaxVertices = 1_000_000;
+   const int MaxFaces = 2_000_000;
+   if (vertexCount > MaxVertices) {
+       throw new ParserException($"Model exceeds maximum vertex limit");
+   }
+
+3. Sanitize file paths:
+   var safePath = Path.GetFullPath(Path.Combine(basePath, userPath));
+   if (!safePath.StartsWith(basePath)) {
+       throw new SecurityException("Path traversal detected");
+   }
+
+FILES REQUIRING CHANGES: All 57 parser files
+ESTIMATED EFFORT: 16-20 hours
+RISK: Low (defensive programming best practices)
+
+================================================================================
+PHASE 3: MAINTAINABILITY IMPROVEMENTS (Weeks 9-12)
+================================================================================
+
+3.1 CREATE UNIFIED PARSER BASE CLASS
+-------------------------------------
+PROBLEM: Each parser reinvents the same patterns
+DUPLICATED CODE ACROSS PARSERS:
+  - Comment stripping (# style)
+  - Whitespace handling
+  - Number parsing with culture-invariant
+  - Error message formatting
+
+SOLUTION: Abstract base class with common functionality
+PROPOSED STRUCTURE:
+  namespace OpenBveApi.Parsing {
+      public abstract class TextParserBase {
+          protected readonly IHost Host;
+          protected int CurrentLine;
+          protected int CurrentColumn;
+          
+          protected ReadOnlySpan<char> ReadLine();
+          protected void StripComments(ref ReadOnlySpan<char> line);
+          protected bool TryParseNumber(ReadOnlySpan<char> span, out double value);
+          protected void ReportError(string message, bool critical);
+      }
+      
+      public abstract class BinaryParserBase {
+          protected readonly BinaryReader Reader;
+          protected readonly Endianness Endian;
+          
+          protected int ReadInt32();
+          protected float ReadSingle();
+          protected void AlignToBoundary(int bytes);
+      }
+  }
+
+BENEFIT: 30% code reduction, consistent behavior, easier testing
+ESTIMATED EFFORT: 24-32 hours (including refactoring existing parsers)
+RISK: Medium (refactoring risk, requires thorough testing)
+
+3.2 RESOLVE TECHNICAL DEBT (TODO/FIXME/HACK)
+---------------------------------------------
+CURRENT STATUS: 39 markers across parser files
+PRIORITIZED LIST:
+
+HIGH PRIORITY (Safety/Correctness):
+  1. FIXME: CsvRwRouteParser.Functions.cs:172 - "This needs to be removed"
+  2. FIXME: MechanikRouteParser.cs:1126 - "Why does Y need negating??"
+  3. TODO: Object.Msts/ShapeParser.cs:1255 - "not yet implemented"
+
+MEDIUM PRIORITY (Performance):
+  4. TODO: AssimpXParser.cs:221 - "can we optimise which faces have transparent color"
+  5. TODO: NewXParser.cs:205 - "Need mixed mode file sample"
+
+LOW PRIORITY (Documentation):
+  6. TODO: Multiple files - "Check exact behaviour" (add unit tests instead)
+  7. HACK: CsvRwRouteParser.cs:51 - Sound path workaround (document properly)
+
+RESOLUTION PROCESS:
+  For each marker:
+  1. Investigate original intent
+  2. Implement fix or add proper documentation
+  3. Remove comment or replace with implementation notes
+  4. Add regression test if bug fix
+
+ESTIMATED EFFORT: 16-24 hours
+RISK: Low-Medium (some may require format specification research)
+
+3.3 ADD COMPREHENSIVE UNIT TESTS
+---------------------------------
+PROBLEM: No automated tests for parser correctness
+COVERAGE GOAL: 80% of parsing logic
+
+TEST CATEGORIES:
+1. Valid input tests (parse successfully)
+   - Minimal valid files
+   - Complex real-world files
+   - Edge cases (empty sections, maximum values)
+
+2. Invalid input tests (fail gracefully)
+   - Malformed syntax
+   - Out-of-range values
+   - Truncated files
+   - Encoding issues
+
+3. Performance tests
+   - Large file parsing (>100MB routes)
+   - Memory allocation limits
+   - Parsing speed benchmarks
+
+TEST FRAMEWORK SETUP:
+  - Use xUnit.net (modern, fast)
+  - Parameterized tests for multiple formats
+  - Snapshot testing for complex outputs
+  
+EXAMPLE TEST:
+  [Theory]
+  [InlineData("valid_route.csv", true)]
+  [InlineData("truncated_route.csv", false)]
+  [InlineData("invalid_number.csv", false)]
+  public void CsvRwRouteParser_HandlesVariousInputs(string fileName, bool shouldSucceed)
+  {
+      var parser = new Parser(plugin, isRW: true);
+      if (shouldSucceed)
+      {
+          parser.ParseRoute(fileName, ...);
+          Assert.NotNull(parser.CurrentRoute);
+      }
+      else
+      {
+          Assert.Throws<ParserException>(() => 
+              parser.ParseRoute(fileName, ...));
+      }
+  }
+
+ESTIMATED EFFORT: 40-50 hours
+RISK: Low (tests only, no production code changes)
+
+================================================================================
+PHASE 4: ADVANCED OPTIMIZATIONS (Weeks 13-16)
+================================================================================
+
+4.1 IMPLEMENT PARALLEL PARSING WHERE SAFE
+------------------------------------------
+APPORTUNITIES:
+  - Route blocks can be parsed independently
+  - Texture files can load concurrently
+  - Object definitions are independent
+
+CONSTRAINTS:
+  - Must preserve ordering for dependent data
+  - Thread-safe error reporting required
+  - Memory limits must be enforced globally
+
+IMPLEMENTATION:
+  var options = new ParallelOptions {
+      MaxDegreeOfParallelism = Environment.ProcessorCount,
+      CancellationToken = cancellationToken
+  };
+  
+  await Parallel.ForEachAsync(routeBlocks, options, async (block, ct) => {
+      await ParseBlockAsync(block, ct);
+  });
+
+ESTIMATED EFFORT: 20-28 hours
+RISK: High (concurrency bugs are subtle)
+POTENTIAL SPEEDUP: 2-4x on multi-core systems
+
+4.2 ADD CACHING LAYER FOR REPEATED PARSING
+-------------------------------------------
+USE CASE: Same objects referenced by multiple trains/routes
+CACHE STRATEGY:
+  - LRU cache with memory limit (e.g., 500MB)
+  - Hash-based content addressing
+  - Invalidate on file modification
+
+IMPLEMENTATION:
+  public class ParserCache {
+      private readonly ConcurrentDictionary<string, CachedObject> _cache;
+      private readonly long _maxMemoryBytes;
+      
+      public T ParseOrGetCached<T>(string filePath) 
+          where T : class
+      {
+          var hash = ComputeHash(filePath);
+          if (_cache.TryGetValue(hash, out var cached))
+          {
+              if (cached.IsValid) return (T)cached.Value;
+          }
+          
+          var result = ParseInternal<T>(filePath);
+          _cache[hash] = new CachedObject(result, File.GetLastWriteTime(filePath));
+          return result;
+      }
+  }
+
+ESTIMATED EFFORT: 16-20 hours
+RISK: Medium (cache coherence challenges)
+
+4.3 CREATE PARSER GENERATOR FOR TEXT FORMATS
+---------------------------------------------
+OPPORTUNITY: Many parsers follow similar grammar patterns
+TOOLS TO EVALUATE:
+  - ANTLR (mature, C# target)
+  - Pidgin (functional, high performance)
+  - Custom T4 templates for boilerplate
+
+BENEFIT: 
+  - Formal grammar specifications
+  - Automatic optimizer generation
+  - Better error messages with recovery
+
+SCOPE: Start with one format (e.g., CSV route format)
+ESTIMATED EFFORT: 24-32 hours (evaluation + pilot implementation)
+RISK: Medium-High (learning curve, may not fit all formats)
+
+================================================================================
+VERIFICATION & BENCHMARKING STRATEGY
+================================================================================
+
+BEFORE/AFTER METRICS TO TRACK:
+1. Performance
+   - Time to parse standard route (seconds)
+   - Time to parse complex object (milliseconds)
+   - Peak memory usage during parsing (MB)
+   - Allocations per parse operation (GC.Gen2 size)
+
+2. Safety
+   - Number of unhandled exceptions (target: 0)
+   - NullReferenceException occurrences (target: 0)
+   - User-reported parsing errors (baseline vs post-fix)
+
+3. Maintainability
+   - Code duplication percentage (target: <15%)
+   - Test coverage percentage (target: >80%)
+   - Average time to add new format support (days)
+
+BENCHMARK SUITE:
+  Create /workspace/benchmarks/ParserBenchmarks/
+  - RouteParsingBenchmark.cs (various route sizes)
+  - ObjectParsingBenchmark.cs (OBJ, X, DX formats)
+  - TextureParsingBenchmark.cs (DDS, PNG, TGA)
+  - MemoryPressureBenchmark.cs (stress test GC)
+
+CONTINUOUS INTEGRATION:
+  - Run benchmarks on every PR (prevent regressions)
+  - Alert if parsing time increases >10%
+  - Track memory trends over time
+
+================================================================================
+IMPLEMENTATION ROADMAP
+================================================================================
+
+WEEK 1-2:  Foundation
+  ✓ Create SpanParserHelpers utility class
+  ✓ Set up benchmarking framework
+  ✓ Profile current parser performance
+  ✓ Begin Phase 1.1 (StreamReader migration) - CsvRwRouteParser
+
+WEEK 3-4:  Memory Optimization
+  ✓ Complete Phase 1.1 for top 5 parsers by file size
+  ✓ Begin Phase 1.2 (Span-based tokenizing)
+  ✓ Measure memory reduction
+
+WEEK 5-6:  Safety First
+  ✓ Begin Phase 2.1 (Specific exception handling)
+  ✓ Create ParserException hierarchy
+  ✓ Audit all catch blocks
+
+WEEK 7-8:  Nullable Migration
+  ✓ Enable nullable on OpenBveApi project
+  ✓ Fix nullability warnings in core types
+  ✓ Expand to plugin parsers
+
+WEEK 9-10: Refactoring
+  ✓ Create TextParserBase abstract class
+  ✓ Refactor 3 parsers to use base class
+  ✓ Begin Phase 3.2 (TODO resolution)
+
+WEEK 11-12: Testing
+  ✓ Set up xUnit test project
+  ✓ Write tests for refactored parsers
+  ✓ Achieve 60% coverage on changed code
+
+WEEK 13-16: Advanced
+  ✓ Evaluate parallel parsing feasibility
+  ✓ Implement caching for most-used objects
+  ✓ Documentation and knowledge transfer
+
+================================================================================
+RISK MITIGATION
+================================================================================
+
+TECHNICAL RISKS:
+1. Breaking changes to plugin API
+   MITIGATION: Version API, provide compatibility shims
+   
+2. Performance regressions
+   MITIGATION: Continuous benchmarking, rollback capability
+   
+3. Incomplete format specification understanding
+   MITIGATION: Extensive testing with real-world files, community review
+
+ORGANIZATIONAL RISKS:
+1. Scope creep
+   MITIGATION: Strict prioritization, phase-gate reviews
+   
+2. Testing burden
+   MITIGATION: Automate test generation where possible
+
+ROLLBACK STRATEGY:
+  - Feature flags for major changes
+  - Branch per phase with independent testing
+  - Maintain parallel old/new parsers during transition
+
+================================================================================
+SUCCESS CRITERIA
+================================================================================
+
+PHASE 1 COMPLETE WHEN:
+  [ ] All large-file parsers use streaming
+  [ ] Memory usage reduced by 50% for 100MB+ files
+  [ ] No performance regression on small files (<1MB)
+
+PHASE 2 COMPLETE WHEN:
+  [ ] Zero generic exception handlers remain
+  [ ] Nullable reference types enabled on all parser projects
+  [ ] Input validation on all external data
+
+PHASE 3 COMPLETE WHEN:
+  [ ] Base class extracted and used by 5+ parsers
+  [ ] All TODO/FIXME markers resolved or documented
+  [ ] 80% test coverage on parsing logic
+
+PHASE 4 COMPLETE WHEN:
+  [ ] Parallel parsing demonstrated on route loading
+  [ ] Cache hit rate >60% for typical usage
+  [ ] Parser generator evaluated with recommendation
+
+OVERALL SUCCESS:
+  [ ] 40% faster average parse times
+  [ ] 75% reduction in memory allocations
+  [ ] Zero null-reference crashes in parsing
+  [ ] New format support time reduced by 50%
+
+================================================================================
+APPENDIX A: FILES REQUIRING CHANGES
+================================================================================
+
+CRITICAL PRIORITY (Large files, frequent use):
+1. /workspace/source/Plugins/Route.CsvRw/CsvRwRouteParser.cs (545 lines)
+2. /workspace/source/Plugins/Object.Msts/ShapeParser.cs (1200+ lines)
+3. /workspace/source/AssimpParser/Wavefront/ObjFileParser.cs (833 lines)
+4. /workspace/source/Plugins/Object.Wavefront/Parsers/WavefrontObjParser.cs (501 lines)
+5. /workspace/source/AssimpParser/X/XFileParser.cs (1800+ lines)
+
+HIGH PRIORITY (Safety concerns):
+6. /workspace/source/Plugins/Object.DirectX/Parsers/NewXParser.cs
+7. /workspace/source/Plugins/Object.LokSim/GroupParser.cs
+8. /workspace/source/Plugins/Route.Mechanik/MechanikRouteParser.cs
+
+MEDIUM PRIORITY (Technical debt):
+9. /workspace/source/Plugins/Object.DirectX/Parsers/AssimpXParser.cs
+10. /workspace/source/Plugins/Object.Wavefront/Parsers/AssimpObjParser.cs
+
+FULL LIST: 57 parser files total (see detailed spreadsheet in project wiki)
+
+================================================================================
+APPENDIX B: TOOLING REQUIREMENTS
+================================================================================
+
+DEVELOPMENT TOOLS:
+  - Visual Studio 2022 or JetBrains Rider (latest C# support)
+  - BenchmarkDotNet for performance testing
+  - dotCover or Coverlet for code coverage
+  - ANTLR4 (optional, for parser generator evaluation)
+
+CI/CD INTEGRATION:
+  - GitHub Actions or Azure DevOps
+  - Automated benchmark runs on PR
+  - Coverage reporting integration
+
+MONITORING:
+  - Application Insights or similar for crash analytics
+  - Custom metrics for parsing performance in production
+
+================================================================================
+DOCUMENT VERSION: 1.0
+CREATED: 2024
+ESTIMATED TOTAL EFFORT: 150-200 hours (12-16 weeks part-time)
+EXPECTED ROI: High - Core infrastructure improvement affecting all users
+================================================================================

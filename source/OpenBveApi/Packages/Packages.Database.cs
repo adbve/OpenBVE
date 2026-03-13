@@ -146,8 +146,28 @@ namespace OpenBveApi.Packages
 					listWriter.Serialize(sw, currentDatabase);
 				}
 			}
-			catch (Exception)
+			catch (UnauthorizedAccessException ex)
 			{
+				// Log: No permission to write to the database folder
+				System.Diagnostics.Debug.WriteLine($"Failed to save package database: {ex.Message}");
+				return false;
+			}
+			catch (IOException ex)
+			{
+				// Log: Disk full, file in use, or other I/O error
+				System.Diagnostics.Debug.WriteLine($"Failed to save package database: {ex.Message}");
+				return false;
+			}
+			catch (XmlException ex)
+			{
+				// Log: XML serialization error
+				System.Diagnostics.Debug.WriteLine($"Failed to serialize package database: {ex.Message}");
+				return false;
+			}
+			catch (InvalidOperationException ex)
+			{
+				// Log: Invalid state for serialization
+				System.Diagnostics.Debug.WriteLine($"Failed to save package database: {ex.Message}");
 				return false;
 			}
 			return true;

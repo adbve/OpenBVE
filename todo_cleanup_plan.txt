@@ -1,0 +1,337 @@
+================================================================================
+                    TODO/FIXME COMMENT CLEANUP PLAN
+                    OpenBVE Project Code Quality Improvement
+================================================================================
+
+EXECUTIVE SUMMARY
+-----------------
+This plan addresses 93 TODO/FIXME comments found in the C# source code.
+These comments represent technical debt, outdated workarounds, and 
+incomplete documentation that reduces code clarity and maintainability.
+
+SIMPLE THING TO IMPROVE: Clean up resolved/obsolete TODO/FIXME comments
+
+WHY THIS MATTERS:
+- Improves code readability for new developers
+- Reduces confusion about what actually needs work
+- Helps identify genuine outstanding issues vs. historical artifacts
+- No functional changes required - pure code hygiene
+- Low risk, high visibility improvement
+
+================================================================================
+PHASE 1: ANALYSIS & CATEGORIZATION (Estimated: 2-3 hours)
+================================================================================
+
+STEP 1.1: Categorize all 93 TODO/FIXME comments by type
+---------------------------------------------------------
+Categories identified from initial scan:
+
+A. DUPLICATE COMMENTS (Priority: HIGH) - ~5 instances
+   Same FIXME appears in multiple renderer files:
+   - "FIXME: Remove when text switches between two renderer types"
+   - Files: LibRender2/Loading/Loading.cs:91
+   - Files: ObjectViewer/Graphics/NewRendererS.cs:250
+   - Files: OpenBVE/Graphics/NewRenderer.cs:498
+   - Files: RouteViewer/NewRendererR.cs:351
+   
+   ACTION: Verify if text renderer switch is complete. If yes, remove ALL.
+
+B. ALREADY RESOLVED (Priority: HIGH) - Estimate: 15-20 instances
+   Comments referencing issues that appear fixed in current code.
+   
+   Examples to verify:
+   - TrainEditor2/Extensions/BindableBase.cs:83
+     "TODO: when we remove the old OnPropertyChanged method..."
+     → Check if old method still exists. If removed, uncomment code.
+   
+   - Plugins/Route.CsvRw/CsvRwRouteParser.Functions.cs:172
+     "FIXME: This needs to be removed"
+     → Verify if code block can be safely deleted.
+
+C. PLACEHOLDER/TEMP VALUES (Priority: MEDIUM) - ~8 instances
+   Steam engine and physics placeholders that should be documented better:
+   - TrainManager/Motor/SteamEngine/TankEngine.cs:61
+     "TODO: PLACEHOLDER VALUES"
+   - TrainManager/Motor/SteamEngine/Tender.cs:39
+   - TrainManager/Motor/SteamEngine/TenderEngine.cs:49
+   
+   ACTION: Replace vague TODO with specific documentation or implement
+           if values are known.
+
+D. INVESTIGATION NEEDED (Priority: LOW) - ~10 instances
+   Comments asking questions or noting things to investigate:
+   - OpenBveApi/Interface/Translations/InterfaceStrings.cs:39
+     "TODO: Appears to remain constant, investigate exact usages..."
+   - Plugins/Train.MsTs/Panel/CabComponent.cs:463
+     "FIXME: why do we need this??"
+   
+   ACTION: Either resolve investigation or convert to proper documentation
+           comment explaining current understanding.
+
+E. API INSTABILITY WARNINGS (Priority: LOW) - 4 instances
+   - OpenBveApi/Graphics/Colors.cs:10
+   - OpenBveApi/Packages/Packages.Database.cs:11
+   - OpenBveApi/Packages/Packages.cs:18
+   - OpenBveApi/Sounds/Sounds.cs:9
+   All state: "TODO: This part of the API is unstable."
+   
+   ACTION: If API has stabilized, remove. If still unstable, convert to
+           proper XML documentation warning.
+
+F. IMPLEMENTATION NOTES (Priority: LOW) - Remaining ~50 instances
+   Notes about future features, optimizations, or design considerations.
+   
+   ACTION: Keep genuinely useful ones as regular comments, remove vague
+           ones like "//TODO:" with no description.
+
+================================================================================
+PHASE 2: EXECUTION STRATEGY (Estimated: 4-6 hours)
+================================================================================
+
+STEP 2.1: Remove Duplicate Renderer FIXME Comments
+---------------------------------------------------
+Files to modify:
+1. /workspace/source/LibRender2/Loading/Loading.cs (line 91)
+2. /workspace/source/ObjectViewer/Graphics/NewRendererS.cs (line 250)
+3. /workspace/source/OpenBVE/Graphics/NewRenderer.cs (line 498)
+4. /workspace/source/RouteViewer/NewRendererR.cs (line 351)
+
+Action: 
+- Verify text rendering now uses single renderer type
+- Remove the SetBlendFunc line if no longer needed, OR
+- Remove just the FIXME comment if line is still required
+
+Expected outcome: 4 files cleaned, consistent renderer code
+
+STEP 2.2: Resolve BindableBase TODO
+------------------------------------
+File: /workspace/source/TrainEditor2/Extensions/BindableBase.cs (line 83)
+
+Current code context:
+  //TODO: when we remove the old OnPropertyChanged method we need to 
+  //      uncomment the below line
+
+Action:
+- Search for "OnPropertyChanged" method in file
+- If old version is gone, uncomment the line
+- Remove the TODO comment
+- If old version still exists, update TODO with clearer guidance
+
+STEP 2.3: Clean CsvRwRouteParser.Functions.cs
+----------------------------------------------
+File: /workspace/source/Plugins/Route.CsvRw/CsvRwRouteParser.Functions.cs (line 172)
+
+Action:
+- Examine code at line 172 marked "FIXME: This needs to be removed"
+- Determine if removal is safe (check git history, test coverage)
+- If safe: delete the code block and FIXME comment
+- If unsure: add detailed comment explaining WHY it might need removal
+
+STEP 2.4: Address Placeholder Values in Steam Engine
+-----------------------------------------------------
+Files:
+- /workspace/source/TrainManager/Motor/SteamEngine/TankEngine.cs:61
+- /workspace/source/TrainManager/Motor/SteamEngine/Tender.cs:39
+- /workspace/source/TrainManager/Motor/SteamEngine/TenderEngine.cs:49
+
+Action:
+Option A (If actual values known):
+  - Replace TODO with actual implementation values
+  - Add comment citing source/reference for values
+
+Option B (If placeholders intentional):
+  - Replace "TODO: PLACEHOLDER VALUES" with:
+    "// Note: These are default placeholder values pending steam physics review"
+  - More descriptive, removes ambiguity
+
+STEP 2.5: Convert API Instability TODOs to Proper Documentation
+----------------------------------------------------------------
+Files:
+- /workspace/source/OpenBveApi/Graphics/Colors.cs:10
+- /workspace/source/OpenBveApi/Packages/Packages.Database.cs:11
+- /workspace/source/OpenBveApi/Packages/Packages.cs:18
+- /workspace/source/OpenBveApi/Sounds/Sounds.cs:9
+
+Action:
+Replace:
+  * TODO: This part of the API is unstable.
+
+With XML documentation:
+  /// <remarks>
+  /// Warning: This API is currently unstable and may change in future versions.
+  /// </remarks>
+
+Or remove entirely if API has stabilized.
+
+STEP 2.6: Batch Process Simple TODOs
+-------------------------------------
+Process remaining ~60 TODO/FIXME comments:
+
+Category: Empty/Vague (e.g., "//TODO:" with no description)
+Action: DELETE the comment entirely
+
+Category: Investigation notes without follow-up
+Action: Either resolve (if quick) or convert to regular comment with 
+        current understanding
+
+Category: Feature requests far in future
+Action: Move to issue tracker if tracked elsewhere, otherwise remove
+
+================================================================================
+PHASE 3: VERIFICATION (Estimated: 1-2 hours)
+================================================================================
+
+STEP 3.1: Compile Verification
+-------------------------------
+- Build solution after each batch of changes
+- Ensure no compilation errors introduced
+- Run existing unit tests if available
+
+STEP 3.2: Count Reduction Validation
+-------------------------------------
+Before: 93 TODO/FIXME comments
+Target: Reduce by 40-60% (to ~40-55 meaningful comments)
+
+Run verification command:
+  grep -rn "TODO\|FIXME" /workspace/source --include="*.cs" | grep -v "HACK" | wc -l
+
+STEP 3.3: Spot Check Random Files
+----------------------------------
+- Select 5-10 modified files at random
+- Verify changes make sense in context
+- Ensure no important information was lost
+
+================================================================================
+DETAILED FILE-BY-FILE ACTION PLAN
+================================================================================
+
+HIGH PRIORITY FILES (Do First):
+-------------------------------
+
+1. LibRender2/Loading/Loading.cs:91
+   Current: renderer.SetBlendFunc(...); //FIXME: Remove when text switches...
+   Action: Check if dual renderer system still exists. Remove line+comment if not.
+
+2. ObjectViewer/Graphics/NewRendererS.cs:250
+   Same as above - coordinate with file #1
+
+3. OpenBVE/Graphics/NewRenderer.cs:498
+   Same as above - coordinate with file #1
+
+4. RouteViewer/NewRendererR.cs:351
+   Same as above - coordinate with file #1
+
+5. TrainEditor2/Extensions/BindableBase.cs:83
+   Current: Commented code with TODO about uncommenting
+   Action: Find old OnPropertyChanged, if gone then uncomment and remove TODO
+
+6. Plugins/Route.CsvRw/CsvRwRouteParser.Functions.cs:172
+   Current: //FIXME: This needs to be removed
+   Action: Review code block, remove if safe or document why not
+
+MEDIUM PRIORITY FILES:
+----------------------
+
+7. TrainManager/Motor/SteamEngine/TankEngine.cs:61
+   Replace TODO with proper documentation
+
+8. TrainManager/Motor/SteamEngine/Tender.cs:39
+   Replace TODO with proper documentation
+
+9. TrainManager/Motor/SteamEngine/TenderEngine.cs:49
+   Replace TODO with proper documentation
+
+10. OpenBveApi/Graphics/Colors.cs:10
+    Convert to XML documentation remark or remove
+
+11. OpenBveApi/Packages/Packages.Database.cs:11
+    Convert to XML documentation remark or remove
+
+12. OpenBveApi/Packages/Packages.cs:18
+    Convert to XML documentation remark or remove
+
+13. OpenBveApi/Sounds/Sounds.cs:9
+    Convert to XML documentation remark or remove
+
+LOW PRIORITY FILES (Batch Process):
+-----------------------------------
+
+Process remaining ~80 files with these rules:
+- If TODO/FIXME has no description: REMOVE
+- If TODO references completed work: REMOVE
+- If TODO is a feature request: Keep only if actionable soon, else REMOVE
+- If FIXME indicates a bug: Keep but make more specific, or fix if trivial
+
+================================================================================
+TOOLS & COMMANDS FOR EXECUTION
+================================================================================
+
+Command to find all TODO/FIXME (excluding HACK which are different):
+  grep -rn "TODO\|FIXME" /workspace/source --include="*.cs" | grep -v "HACK"
+
+Command to count by file:
+  grep -rn "TODO\|FIXME" /workspace/source --include="*.cs" | \
+    cut -d: -f1 | sort | uniq -c | sort -rn
+
+Command to find empty/vague TODOs (just "//TODO:" or "// TODO" with nothing after):
+  grep -rn "^.*//.*TODO:$\|^.*//.*TODO\s*$" /workspace/source --include="*.cs"
+
+================================================================================
+EXPECTED OUTCOMES
+================================================================================
+
+QUANTITATIVE:
+- Reduce TODO/FIXME count from 93 to approximately 40-55
+- Clean up 4 duplicate comments in renderer files
+- Resolve 5-10 actionable items immediately
+- Convert 10+ vague comments to proper documentation
+
+QUALITATIVE:
+- Clearer distinction between actual technical debt vs. historical notes
+- Better documentation for known limitations
+- Easier for new contributors to identify real issues
+- Improved overall code professionalism
+
+RISK ASSESSMENT:
+- Risk Level: VERY LOW
+- No functional code changes (mostly comment modifications)
+- Reversible via git if any issues arise
+- No impact on runtime behavior
+
+================================================================================
+TIMELINE ESTIMATE
+================================================================================
+
+Phase 1 (Analysis):     2-3 hours
+Phase 2 (Execution):    4-6 hours  
+Phase 3 (Verification): 1-2 hours
+--------------------------------
+TOTAL:                  7-11 hours
+
+Can be completed in 1-2 working days by a single developer familiar
+with the codebase, or split among multiple developers by file groups.
+
+================================================================================
+POST-CLEANUP MAINTENANCE
+================================================================================
+
+To prevent accumulation of stale TODOs in future:
+
+1. Add to Contributing.md:
+   "TODO/FIXME comments must include:
+    - Specific action required
+    - Reason/context
+    - Optional: GitHub issue reference
+    Vague TODOs will be removed during code review."
+
+2. Consider automated check in build process:
+   - Warn on new TODO/FIXME without description
+   - Track TODO age (comments older than 2 years flagged for review)
+
+3. Quarterly TODO review:
+   - Schedule recurring task to review existing TODOs
+   - Close resolved ones, update stale ones
+
+================================================================================
+END OF PLAN
+================================================================================

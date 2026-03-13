@@ -798,8 +798,14 @@ namespace OpenBve
 				{
 					t = listviewTrainFolders.SelectedItems[0].Tag as string;
 				}
-				catch (Exception)
+				catch (ArgumentOutOfRangeException)
 				{
+					// No item selected in the list view
+					return;
+				}
+				catch (InvalidOperationException)
+				{
+					// List view is in an invalid state
 					return;
 				}
 				if (t != null) {
@@ -970,8 +976,14 @@ namespace OpenBve
 				{
 					t = listViewTrainPackages.SelectedItems[0].Tag as string;
 				}
-				catch (Exception)
+				catch (ArgumentOutOfRangeException)
 				{
+					// No item selected in the list view
+					return;
+				}
+				catch (InvalidOperationException)
+				{
+					// List view is in an invalid state
 					return;
 				}
 				if (t != null) {

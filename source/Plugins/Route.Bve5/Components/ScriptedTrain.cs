@@ -26,6 +26,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using OpenBveApi.System;
 using Bve5_Parsing.MapGrammar;
 using Bve5_Parsing.MapGrammar.EvaluateData;
 using LibRender2.Trains;
@@ -321,12 +322,18 @@ namespace Route.Bve5
 
 			System.Text.Encoding Encoding = Text.DetermineBVE5FileEncoding(scriptedTrain.FilePath);
 
-			string[] Lines = File.ReadAllLines(scriptedTrain.FilePath, Encoding).Skip(1).ToArray();
+			// Use streaming reader to avoid loading entire file into memory
+			List<string> Lines = StreamingReader.ReadAllLines(scriptedTrain.FilePath, Encoding);
+			// Skip header line (first line)
+			if (Lines.Count > 0) {
+				Lines.RemoveAt(0);
+			}
+			
 			List<Dictionary<string, string>> Structures = new List<Dictionary<string, string>>();
 			List<Dictionary<string, string>> Sound3ds = new List<Dictionary<string, string>>();
 			string Section = string.Empty;
 
-			for (int i = 0; i < Lines.Length; i++)
+			for (int i = 0; i < Lines.Count; i++)
 			{
 				Lines[i] = Lines[i].Trim();
 

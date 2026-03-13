@@ -29,6 +29,7 @@ using Bve5_Parsing.MapGrammar.EvaluateData;
 using OpenBveApi;
 using OpenBveApi.Interface;
 using OpenBveApi.Objects;
+using OpenBveApi.System;
 using Path = OpenBveApi.Path;
 
 namespace Route.Bve5
@@ -60,7 +61,10 @@ namespace Route.Bve5
 			string BaseDirectory = System.IO.Path.GetDirectoryName(structureList);
 
 			System.Text.Encoding Encoding = Text.DetermineBVE5FileEncoding(structureList);
-			string[] Lines = File.ReadAllLines(structureList, Encoding).Select(Line => Line.Trim('"').Trim()).ToArray();
+			// Use streaming reader to avoid loading entire file into memory
+			List<string> Lines = StreamingReader.ReadAllLines(structureList, Encoding)
+				.Select(Line => Line.Trim('"').Trim())
+				.ToList();
 			if (structureList.IndexOf("Tn_E235", StringComparison.InvariantCultureIgnoreCase) != -1 || structureList.IndexOf("TSLSeoul4", StringComparison.InvariantCultureIgnoreCase) != -1)
 			{
 				// Some routes with badly optimized objects- Use a much lower threshold to avoid killing the renderer

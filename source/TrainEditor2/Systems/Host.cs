@@ -30,6 +30,12 @@ namespace TrainEditor2.Systems
 		/// <returns>Whether loading the sound was successful.</returns>
 		public override bool LoadSound(string path, out Sound sound)
 		{
+			if (string.IsNullOrEmpty(path))
+			{
+				sound = null;
+				return false;
+			}
+
 			if (File.Exists(path) || Directory.Exists(path))
 			{
 				foreach (ContentLoadingPlugin plugin in Program.CurrentHost.Plugins)
@@ -47,15 +53,37 @@ namespace TrainEditor2.Systems
 										return true;
 									}
 								}
-								catch (Exception)
+								catch (ArgumentException ex)
 								{
-									// ignored
+									// Invalid path or argument passed to sound loader
+									System.Diagnostics.Debug.WriteLine($"Failed to load sound '{path}': {ex.Message}");
+								}
+								catch (IOException ex)
+								{
+									// File access error
+									System.Diagnostics.Debug.WriteLine($"Failed to load sound '{path}': {ex.Message}");
+								}
+								catch (NotSupportedException ex)
+								{
+									// Unsupported sound format
+									System.Diagnostics.Debug.WriteLine($"Failed to load sound '{path}': {ex.Message}");
+								}
+								catch (InvalidOperationException ex)
+								{
+									// Plugin in invalid state
+									System.Diagnostics.Debug.WriteLine($"Failed to load sound '{path}': {ex.Message}");
 								}
 							}
 						}
-						catch (Exception)
+						catch (InvalidOperationException ex)
 						{
-							// ignored
+							// Plugin collection modified during iteration
+							System.Diagnostics.Debug.WriteLine($"Plugin error while loading sound '{path}': {ex.Message}");
+						}
+						catch (NullReferenceException ex)
+						{
+							// Plugin not properly initialized
+							System.Diagnostics.Debug.WriteLine($"Plugin error while loading sound '{path}': {ex.Message}");
 						}
 					}
 				}

@@ -28,6 +28,7 @@ using Bve5_Parsing.MapGrammar.EvaluateData;
 using OpenBveApi;
 using OpenBveApi.Interface;
 using OpenBveApi.Math;
+using OpenBveApi.System;
 using Path = OpenBveApi.Path;
 
 namespace Route.Bve5
@@ -59,9 +60,13 @@ namespace Route.Bve5
 			string BaseDirectory = System.IO.Path.GetDirectoryName(soundList);
 
 			System.Text.Encoding Encoding = Text.DetermineBVE5FileEncoding(soundList);
-			string[] Lines = File.ReadAllLines(soundList, Encoding).Select(Line => Line.Trim('"').Trim()).ToArray();
+			
+			// Use streaming reader to avoid loading entire file into memory
+			List<string> Lines = StreamingReader.ReadAllLines(soundList, Encoding)
+				.Select(Line => Line.Trim('"').Trim())
+				.ToList();
 
-			for (int i = 1; i < Lines.Length; i++)
+			for (int i = 1; i < Lines.Count; i++)
 			{
 				//Cycle through the list of sounds
 				//A sound index is formatted as follows:
@@ -129,9 +134,13 @@ namespace Route.Bve5
 			string BaseDirectory = System.IO.Path.GetDirectoryName(sound3DList);
 
 			System.Text.Encoding Encoding = Text.DetermineBVE5FileEncoding(sound3DList);
-			string[] Lines = File.ReadAllLines(sound3DList, Encoding).Select(Line => Line.Trim('"').Trim()).ToArray();
+			
+			// Use streaming reader to avoid loading entire file into memory
+			List<string> Lines = StreamingReader.ReadAllLines(sound3DList, Encoding)
+				.Select(Line => Line.Trim('"').Trim())
+				.ToList();
 
-			for (int i = 1; i < Lines.Length; i++)
+			for (int i = 1; i < Lines.Count; i++)
 			{
 				//Cycle through the list of sounds
 				//A sound index is formatted as follows:

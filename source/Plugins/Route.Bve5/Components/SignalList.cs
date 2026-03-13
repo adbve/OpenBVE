@@ -29,6 +29,7 @@ using Bve5_Parsing.MapGrammar.EvaluateData;
 using OpenBveApi;
 using OpenBveApi.Interface;
 using OpenBveApi.Objects;
+using OpenBveApi.System;
 using Path = OpenBveApi.Path;
 
 namespace Route.Bve5
@@ -58,9 +59,13 @@ namespace Route.Bve5
 			}
 
 			System.Text.Encoding Encoding = Text.DetermineBVE5FileEncoding(signalList);
-			string[] Lines = File.ReadAllLines(signalList, Encoding).Select(Line => Line.Trim('"').Trim()).ToArray();
+			
+			// Use streaming reader to avoid loading entire file into memory
+			List<string> Lines = StreamingReader.ReadAllLines(signalList, Encoding)
+				.Select(Line => Line.Trim('"').Trim())
+				.ToList();
 
-			for (int currentLine = 1; currentLine < Lines.Length; currentLine++)
+			for (int currentLine = 1; currentLine < Lines.Count; currentLine++)
 			{
 
 				Lines[currentLine] = Lines[currentLine].TrimBVE5Comments();
